@@ -1,0 +1,51 @@
+on:
+  release:
+    types:
+    - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: docker/setup-buildx-action@v2
+
+    - uses: docker/build-push-action@v4
+      id: build
+      with:
+        build-args:
+          CT_NG_PREFIX=${{ github.event.release.tag_name }}
+        outputs: type=docker,dest=image.tar
+
+    - run: |
+        docker load --input image.tar
+        docker create --name crosstool-ng "${IMAGE_ID}"
+        docker cp crosstool-ng:/home/user/ctng/work/${CT_NG_PREFIX}.tar.bz2 .
+        docker rm crosstool-ng
+      env:
+        CT_NG_PREFIX: ${{ github.event.release.tag_name }}
+        IMAGE_ID: ${{ steps.build.outputs.imageid }}
+
+    - uses: actions/github-script@v6
+      with:
+        script: |
+          const {open} = require('node:fs/promises')
+
+          const name = `${context.payload.release.tag_name}.tar.bz2`
+          const file = await open(name)
+          const stat = await file.stat()
+
+          await github.rest.repos.uploadReleaseAsset(
+            {
+              ...context.repo,
+              release_id: context.payload.release.id,
+              name,
+              data: file.createReadStream(),
+              headers: {
+                'content-type': 'application/x-tar',
+                'content-length': stat.size
+              }
+            }
+          )
