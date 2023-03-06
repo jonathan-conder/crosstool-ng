@@ -1,0 +1,40 @@
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - run: sudo apt-get install help2man libtool-bin lzip
+
+    - uses: actions/checkout@v3
+
+    - run: make CT_NG_PREFIX="${CT_NG_PREFIX}"
+      env:
+        CT_NG_PREFIX: ${{ github.event.release.name }}
+
+    - uses: actions/github-script@v6
+      with:
+        script: |
+          const {open} = require('node:fs/promises')
+
+          const name = `${context.payload.release.name}.tar.xz`
+          const file = await open(`work/${name}`)
+          const stat = await file.stat()
+
+          await github.rest.repos.uploadReleaseAsset(
+            {
+              ...context.repo,
+              release_id: context.payload.release.id,
+              name,
+              data: file.createReadStream(),
+              headers: {
+                'content-type': 'application/x-tar',
+                'content-length': stat.size
+              }
+            }
+          )
